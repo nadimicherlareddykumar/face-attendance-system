@@ -80,7 +80,23 @@ const Front = () => {
           const usn = result.usn;
           if (usn === "Unknown") continue;
 
-          const matchedStudent = students.find((student) => student.usn === usn);
+          // Debugging Logs
+          console.log(`Checking USN: '${usn}' against students list`);
+
+          // Robust comparison: Convert both to string, trim whitespace, and ignore case
+          const matchedStudent = students.find((student) => {
+            const sUsn = String(student.usn).trim().toLowerCase();
+            const rUsn = String(usn).trim().toLowerCase();
+            return sUsn === rUsn;
+          });
+
+          if (matchedStudent) {
+            console.log("Match found:", matchedStudent.name);
+          } else {
+            console.warn("No match found for USN:", usn);
+            console.log("Available USNs:", students.map(s => s.usn));
+          }
+
           const name = matchedStudent ? matchedStudent.name : "Unknown";
 
           // Add/Update in buffer
@@ -238,6 +254,8 @@ const Front = () => {
                 {attendanceMessage}
               </div>
             )}
+
+
             <div className="flex flex-row gap-3 flex-wrap justify-center">
               <button
                 onClick={() => handleRecognize(false)}
