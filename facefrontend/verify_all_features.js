@@ -68,19 +68,24 @@ async function runTests() {
 
         // 4. Verify Dashboard Stats
         console.log("\n4️⃣  Verifying Dashboard Data...");
-        const todayRes = await axios.get(`${NODE_API}/attendance/today`);
-        const presentStudent = todayRes.data.find(s => s.usn === testUSN);
+        // Fetch all attendance and filter for today
+        const allAttendanceRes = await axios.get(`${NODE_API}/attendance`);
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const presentStudent = allAttendanceRes.data.find(s =>
+            s.usn === testUSN && s.recognizedAt.startsWith(todayStr)
+        );
 
         if (presentStudent) {
-            console.log("   ✅ Student found in 'Today's Attendance' list.");
+            console.log("   ✅ Student found in 'Attendance' list for today.");
         } else {
-            console.error("   ❌ Student NOT found in 'Today's Attendance' list.");
+            console.error("   ❌ Student NOT found in 'Attendance' list for today.");
         }
 
         // 5. Test Report Generation
         console.log("\n5️⃣  Testing Report Generation...");
-        const reportRes = await axios.get(`${NODE_API}/attendance/download`);
-        if (reportRes.data.includes("USN,Name,Subject")) {
+        const reportRes = await axios.get(`${NODE_API}/reports/attendance`);
+        if (reportRes.data.includes("Name,USN,Course")) {
             console.log("   ✅ CSV Report generated successfully.");
             console.log("   Preview: " + reportRes.data.split('\n')[0]);
         } else {

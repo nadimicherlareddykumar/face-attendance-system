@@ -10,10 +10,12 @@ const Front = () => {
   const [attendanceMessage, setAttendanceMessage] = useState("");
   const [students, setStudents] = useState([]);
   const [isAutoMode, setIsAutoMode] = useState(false);
-  const [totalPresent, setTotalPresent] = useState(0);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Menu state
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const recentDetections = useRef(new Map()); // Buffer for stable display
+  const markedStudents = useRef(new Map()); // Map<USN, timestamp> - Cooldown for API calls
 
   // Fetch students and initial attendance count
   useEffect(() => {
@@ -23,13 +25,7 @@ const Front = () => {
         const studentRes = await axios.get("http://localhost:5001/api/students");
         setStudents(studentRes.data);
 
-        // Fetch Today's Attendance Count
-        const attendanceRes = await axios.get("http://localhost:5001/api/attendance");
-        const today = new Date().toISOString().split('T')[0];
-        const todayCount = attendanceRes.data.filter(record =>
-          new Date(record.recognizedAt).toISOString().split('T')[0] === today
-        ).length;
-        setTotalPresent(todayCount);
+
 
       } catch (err) {
         console.error("Error fetching data:", err);
@@ -73,29 +69,62 @@ const Front = () => {
     const imageData = canvas.toDataURL("image/jpeg");
 
     try {
-      const response = await axios.post("http://localhost:5005/recognize", { image: imageData });
+      const response = await axios.post("http://localhost:5006/recognize", { image: imageData });
       const results = response.data;
 
-      if (results.length === 0) {
-        setRecognizedName("No face detected");
-        setRecognizedStudentName("");
-        if (!isAuto) toast.error("No face detected");
-        return;
+      const now = Date.now();
+
+      // 1. Update Buffer with new detections
+      if (results.length > 0) {
+        for (const result of results) {
+          const usn = result.usn;
+          if (usn === "Unknown") continue;
+
+          const matchedStudent = students.find((student) => student.usn === usn);
+          const name = matchedStudent ? matchedStudent.name : "Unknown";
+
+          // Add/Update in buffer
+          recentDetections.current.set(usn, { name, timestamp: now });
+        }
       }
 
-      const recognizedUSNs = [];
-      const recognizedNames = [];
+      // 2. Clean up old entries (older than 3 seconds)
+      for (const [key, value] of recentDetections.current.entries()) {
+        if (now - value.timestamp > 3000) {
+          recentDetections.current.delete(key);
+        }
+      }
+
+      // 3. Update Display from Buffer
+      if (recentDetections.current.size > 0) {
+        const allUsns = Array.from(recentDetections.current.keys());
+        const allNames = Array.from(recentDetections.current.values()).map(v => v.name);
+
+        setRecognizedName(allUsns.join(", "));
+        setRecognizedStudentName(allNames.join(", "));
+      } else {
+        setRecognizedName("No face detected");
+        setRecognizedStudentName("");
+        if (!isAuto && results.length === 0) toast.error("No face detected");
+      }
+
+      // 4. Handle Attendance (Only for CURRENTLY detected faces)
       let successCount = 0;
       let newAttendanceMarked = false;
+      const COOLDOWN_PERIOD = 10 * 60 * 1000; // 10 minutes
 
       for (const result of results) {
         const usn = result.usn;
         if (usn === "Unknown") continue;
 
-        recognizedUSNs.push(usn);
-        const matchedStudent = students.find((student) => student.usn === usn);
-        recognizedNames.push(matchedStudent ? matchedStudent.name : "Unknown");
+        // Check cooldown
+        const lastMarked = markedStudents.current.get(usn);
+        if (lastMarked && (now - lastMarked < COOLDOWN_PERIOD)) {
+          console.log(`Skipping attendance for ${usn} (Cooldown active)`);
+          continue;
+        }
 
+        const matchedStudent = students.find((student) => student.usn === usn);
         const recognizedAt = new Date().toISOString();
 
         try {
@@ -103,43 +132,34 @@ const Front = () => {
             usn,
             recognizedAt
           });
+
+          // If marked (201) or already recorded (200), update cooldown
+          if (res.status === 201 || res.status === 200) {
+            markedStudents.current.set(usn, now);
+          }
+
           if (res.status === 201) {
             successCount++;
             newAttendanceMarked = true;
             toast.success(`Marked: ${matchedStudent ? matchedStudent.name : usn}`);
           }
         } catch (err) {
-          const errorMsg = err.response?.data?.message;
-          if (!isAuto && errorMsg) {
-            // Optional: toast.info(errorMsg); 
-          }
+          // Error handling
         }
       }
 
-      if (newAttendanceMarked) {
-        // Refresh count from server to be accurate (or just increment locally)
-        // Fetching ensures we don't double count if multiple clients are running
-        const attendanceRes = await axios.get("http://localhost:5001/api/attendance");
-        const today = new Date().toISOString().split('T')[0];
-        const todayCount = attendanceRes.data.filter(record =>
-          new Date(record.recognizedAt).toISOString().split('T')[0] === today
-        ).length;
-        setTotalPresent(todayCount);
-      }
-
-      if (recognizedUSNs.length > 0) {
-        setRecognizedName(recognizedUSNs.join(", "));
-        setRecognizedStudentName(recognizedNames.join(", "));
-        if (successCount > 0) {
-          setAttendanceMessage(`Attendance marked for ${successCount} student(s).`);
-        } else {
-          setAttendanceMessage("Attendance already recorded for all.");
-        }
+      if (successCount > 0) {
+        setAttendanceMessage(`Attendance marked for ${successCount} student(s).`);
+      } else if (recentDetections.current.size > 0) {
+        setAttendanceMessage("Attendance already recorded.");
       } else {
-        setRecognizedName("Unknown");
-        setRecognizedStudentName("Unknown");
         setAttendanceMessage("");
       }
+
+
+
+      // Clear canvas
+      context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
     } catch (err) {
       console.error(err);
@@ -154,10 +174,7 @@ const Front = () => {
     <div className="absolute inset-0 -z-10 h-full w-full items-center px-5 py-24 [background:radial-gradient(125%_125%_at_50%_10%,#000_40%,#63e_100%)]">
 
       {/* Total Present Counter Badge */}
-      <div className="absolute top-5 left-5 bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl shadow-xl flex flex-col items-center animate-fade-in z-10">
-        <span className="text-gray-300 text-sm font-semibold uppercase tracking-wider">Present Today</span>
-        <span className="text-4xl font-bold text-emerald-400 drop-shadow-lg">{totalPresent}</span>
-      </div>
+
 
       {/* Hamburger Menu (Top Right) */}
       <div className="absolute top-5 right-5 z-50">
@@ -188,21 +205,24 @@ const Front = () => {
         <div className="flex flex-col sm:flex-row gap-5 w-full h-[80vh] p-5">
           <div className="w-1/2 h-full flex items-center justify-center">
             <div className="w-full max-w-2xl aspect-video bg-black rounded-2xl shadow-2xl overflow-hidden border-2 border-[#E8E4FF] relative">
-              <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
+              <video ref={videoRef} autoPlay muted className="w-full h-full object-cover absolute top-0 left-0" />
               <canvas ref={canvasRef} width="640" height="480" className="hidden"></canvas>
 
-              {/* Auto Mode Indicator Overlay */}
               {isAutoMode && (
                 <div className="absolute top-4 right-4 bg-green-500/80 text-white px-3 py-1 rounded-full text-sm font-bold animate-pulse">
                   AUTO MODE ON
                 </div>
               )}
+
+              <div className="absolute top-4 left-4 bg-blue-500/80 text-white px-3 py-1 rounded-full text-sm font-bold">
+                FaceNet Enhanced
+              </div>
             </div>
           </div>
 
           <div className="w-1/2 h-full flex flex-col items-center justify-center text-center">
             <h1 className="text-5xl font-bold text-white drop-shadow-md mb-6">
-              Smart Attendance System
+              Student Attendance System
             </h1>
 
             <div className="mt-5 text-2xl font-medium text-gray-300">

@@ -5,9 +5,6 @@ import axios from 'axios';
 import React, { useState, useEffect, useRef } from 'react';
 
 const Addstudent = () => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-
   const [student, setStudent] = useState({
     name: '',
     usn: '',
@@ -15,74 +12,70 @@ const Addstudent = () => {
     course: '',
     phone: ''
   });
-
-  useEffect(() => {
-    const getCameraStream = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (err) {
-        console.error("Error accessing webcam: ", err);
-      }
-    };
-
-    getCameraStream();
-
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach((track) => track.stop());
-      }
-    };
-  }, []);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [isEnrolling, setIsEnrolling] = useState(false);
 
   const handleChange = (e) => {
     setStudent({ ...student, [e.target.name]: e.target.value });
   };
 
-  const captureAndSend = async () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
 
-    if (!student.name || !student.usn || !student.age || !student.course || !student.phone) {
-      alert("Please fill in all student details.");
+  const handleEnrollment = async () => {
+    if (!student.name || !student.usn || !student.age || !student.course || !student.phone || !selectedFile) {
+      alert("Please fill in all details and upload a photo.");
       return;
     }
 
-    if (video && canvas) {
-      const context = canvas.getContext('2d');
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setIsEnrolling(true);
 
-      const imageData = canvas.toDataURL('image/jpeg');
+    try {
+      // Convert file to Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(selectedFile);
+      reader.onloadend = async () => {
+        const base64Image = reader.result;
 
-      try {
-        const response = await fetch('http://localhost:5000/enroll', {
+        // Send to Python API
+        const response = await fetch('http://localhost:5006/enroll', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usn: student.usn, image: imageData })
+          body: JSON.stringify({ usn: student.usn, image: base64Image })
         });
 
-        const result = await response.json();
-        alert(result.message);
+        if (response.ok) {
+          // Save student details to Node.js backend
+          const dataResponse = await fetch('http://localhost:5001/api/students', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...student, image: base64Image }) // Save image in DB too if needed
+          });
 
-        const dataResponse = await fetch('http://localhost:5001/api/students', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(student)
-        });
+          if (dataResponse.ok) {
+            alert(`Successfully enrolled ${student.name}!`);
+            setStudent({ name: '', age: '', course: '', phone: '', usn: '' });
+            setSelectedFile(null);
+            setPreviewUrl(null);
+          } else {
+            alert("Failed to save student details.");
+          }
+        } else {
+          alert("Failed to enroll face. Please try a clearer photo.");
+        }
+        setIsEnrolling(false);
+      };
 
-        const dataResult = await dataResponse.json();
-        console.log('Student DB response:', dataResult.message);
-
-        alert('Student enrolled successfully!');
-        setStudent({ name: '', age: '', course: '', phone: '', usn: '' });
-
-      } catch (err) {
-        console.error('Error sending data to backend:', err);
-        alert("Failed to enroll face.");
-      }
+    } catch (err) {
+      console.error('Error during enrollment:', err);
+      alert("Enrollment failed. Please check the console.");
+      setIsEnrolling(false);
     }
   };
 
@@ -138,20 +131,34 @@ const Addstudent = () => {
               <input type="number" name="phone" value={student.phone} onChange={handleChange} className="placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="Enter the mobile number" />
             </div>
 
-            {/* Camera & Button */}
+            {/* File Upload & Preview */}
             <div className='flex flex-col lg:flex-row w-full gap-4 mt-6'>
-              <div className='w-full lg:w-1/2 h-[53vh] bg-white/20 backdrop-blur-lg border border-gray-50 rounded-2xl p-2 flex justify-center items-center overflow-hidden'>
-                <div className="w-full h-full bg-black rounded-2xl shadow-2xl overflow-hidden">
-                  <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
-                  <canvas ref={canvasRef} width="640" height="480" className="hidden"></canvas>
+              <div className='w-full lg:w-1/2 h-[53vh] bg-white/20 backdrop-blur-lg border border-gray-50 rounded-2xl p-2 flex justify-center items-center overflow-hidden relative'>
+                <div className="w-full h-full bg-gray-100 rounded-2xl shadow-inner flex items-center justify-center overflow-hidden">
+                  {previewUrl ? (
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="text-gray-400 text-center">
+                      <FaUser size={48} className="mx-auto mb-2" />
+                      <p>No Image Selected</p>
+                    </div>
+                  )}
                 </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg cursor-pointer"
+                />
               </div>
               <div className='w-full lg:w-1/2 flex flex-col justify-start mt-5 items-center text-center'>
-                <h1 className='text-gray-800 font-bold text-[1.5rem] mb-4'>Please place your face properly</h1>
+                <h1 className='text-gray-800 font-bold text-[1.5rem] mb-4'>Upload Student Photo</h1>
+                <p className="text-gray-500 mb-6">Please upload a clear, front-facing photo (like an ID card photo) for best recognition results.</p>
                 <button
-                  onClick={captureAndSend}
-                  className='w-sm rounded-xl bg-gradient-to-r from-blue-700 to-blue-600 px-8 py-3 font-bold text-white transition-all hover:opacity-90 hover:shadow-lg'>
-                  Enroll Face
+                  onClick={handleEnrollment}
+                  disabled={isEnrolling}
+                  className={`w-sm rounded-xl px-8 py-3 font-bold text-white transition-all hover:opacity-90 hover:shadow-lg ${isEnrolling ? 'bg-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-blue-700 to-blue-600'}`}>
+                  {isEnrolling ? 'Enrolling...' : 'Enroll Student'}
                 </button>
               </div>
             </div>

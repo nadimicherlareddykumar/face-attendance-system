@@ -47,6 +47,10 @@ const Dashboard = () => {
     const totalStudents = students.length;
     const absentStudents = totalStudents - presentToday.length;
 
+    const [timetable, setTimetable] = useState([]);
+
+    // ... (existing code)
+
     useEffect(() => {
         const fetchAttendance = async () => {
             try {
@@ -75,9 +79,19 @@ const Dashboard = () => {
             }
         };
 
+        const fetchTimetable = async () => {
+            try {
+                const response = await axios.get('http://localhost:5001/api/timetable');
+                setTimetable(response.data);
+            } catch (err) {
+                console.error("Error fetching timetable:", err);
+            }
+        };
+
         fetchAttendance();
         fetchStudents();
         fetchDefaulterStats();
+        fetchTimetable();
     }, []);
 
     // Process data for chart (Last 7 days)
@@ -98,7 +112,9 @@ const Dashboard = () => {
 
     const chartData = getChartData();
 
-    const courseList = ["All", ...new Set(attendance.map((student) => student.course))];
+    const activeSubjects = [...new Set(timetable.map(t => t.subject))];
+    const historicalSubjects = [...new Set(attendance.map((student) => student.course))];
+    const courseList = ["All", ...new Set([...activeSubjects, ...historicalSubjects])];
 
     const filteredAttendance = selectedCourse === "All"
         ? attendance
@@ -320,9 +336,15 @@ const Dashboard = () => {
                         <div className="bg-white w-1/2 h-[14.5rem] rounded-[1.1rem] shadow-md p-5">
                             <h1 className="text-gray-800 text-md font-semibold">Add Attendance Manually</h1>
                             <div className="grid grid-cols-2 gap-2 mt-5">
-                                <input type="text" name="manual_name" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="Enter the student's name" />
-                                <input type="text" name="manual_usn" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="Enter the student's Usn" />
-                                <input type="text" name="manual_course" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="Enter the student's Course" />
+                                <input type="text" name="manual_name" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="Name" />
+                                <input type="text" name="manual_usn" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" placeholder="USN" />
+
+                                <select name="manual_course" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2 text-gray-700">
+                                    <option value="" disabled selected>Select Course</option>
+                                    {activeSubjects.map((subject, idx) => (
+                                        <option key={idx} value={subject}>{subject}</option>
+                                    ))}
+                                </select>
                                 <input type="datetime-local" name="recognizedAt" className="w-full placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2" />
                             </div>
                             <button onClick={handleManualAttendance} className="w-[12rem] mt-4 rounded-xl p-2 bg-gradient-to-r from-blue-700 to-blue-600 font-bold text-white transition-all hover:opacity-90 hover:shadow-lg">
@@ -330,6 +352,8 @@ const Dashboard = () => {
                             </button>
                         </div>
                     </div>
+
+
 
                     {/* Pagination */}
                     <div className="text-center text-gray-600 mt-4 pb-8">

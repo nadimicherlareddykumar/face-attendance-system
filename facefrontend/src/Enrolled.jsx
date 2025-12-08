@@ -214,29 +214,47 @@ const Enrolled = () => {
               <p>Pages / Enrolled</p>
               <h1 className="text-lg font-semibold">Enrolled Students</h1>
             </div>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search Student Here"
-                value={search}
-                onChange={handleSearchChange}
-                className="text-gray-900 placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2 focus:ring-2 focus:ring-blue-500 w-80"
-              />
-              {filteredSuggestions.length > 0 && (
-                <div className="absolute w-full mt-1 bg-white shadow-lg rounded-lg max-h-60 overflow-auto z-10">
-                  <ul className="text-sm text-gray-800">
-                    {filteredSuggestions.map((student) => (
-                      <li
-                        key={student._id || student.usn}
-                        className="py-2 px-4 hover:bg-gray-100 cursor-pointer"
-                        onClick={() => handleSuggestionClick(student)}
-                      >
-                        {student.name} ({student.usn})
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  const csvContent = "data:text/csv;charset=utf-8,"
+                    + "Name,USN,Age,Course,Phone,Enrolled At,Status\n"
+                    + students.map(s => `${s.name},${s.usn},${s.age},${s.course},${s.phone},${new Date(s.enrolledAt).toLocaleDateString()},${getAttendanceStatus(s.usn)}`).join("\n");
+                  const encodedUri = encodeURI(csvContent);
+                  const link = document.createElement("a");
+                  link.setAttribute("href", encodedUri);
+                  link.setAttribute("download", "enrolled_students.csv");
+                  document.body.appendChild(link);
+                  link.click();
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition"
+              >
+                <FaDownload /> Export CSV
+              </button>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search Student Here"
+                  value={search}
+                  onChange={handleSearchChange}
+                  className="text-gray-900 placeholder:text-gray-700 rounded-xl bg-[#F7F7F7] px-4 py-2 focus:ring-2 focus:ring-blue-500 w-80"
+                />
+                {filteredSuggestions.length > 0 && (
+                  <div className="absolute w-full mt-1 bg-white shadow-lg rounded-lg max-h-60 overflow-auto z-10">
+                    <ul className="text-sm text-gray-800">
+                      {filteredSuggestions.map((student) => (
+                        <li
+                          key={student._id || student.usn}
+                          className="py-2 px-4 hover:bg-gray-100 cursor-pointer"
+                          onClick={() => handleSuggestionClick(student)}
+                        >
+                          {student.name} ({student.usn})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

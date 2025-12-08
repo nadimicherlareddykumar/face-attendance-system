@@ -181,50 +181,40 @@ const Timetable = () => {
                         </form>
                     </div>
 
-                    {/* Timetable List */}
-                    <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-2">
+                    {/* Timetable Grid */}
+                    <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-2 overflow-x-auto">
                         <h2 className="text-xl font-semibold mb-4 text-gray-700">Weekly Schedule</h2>
-                        {timetable.length === 0 ? (
-                            <p className="text-gray-500 italic">No periods scheduled.</p>
-                        ) : (
-                            <div className="space-y-6">
-                                {daysOfWeek.map(d => (
-                                    groupedTimetable[d] && groupedTimetable[d].length > 0 && (
-                                        <div key={d} className="border-b pb-4 last:border-0">
-                                            <h3 className="font-bold text-lg text-indigo-600 mb-2">{d}</h3>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                {groupedTimetable[d].map((period) => (
-                                                    <div key={period.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200 hover:shadow-sm transition-shadow">
-                                                        <div>
-                                                            <h4 className="font-bold text-gray-800">{period.subject}</h4>
-                                                            <p className="text-sm text-gray-600">
-                                                                {period.startTime} - {period.endTime}
-                                                            </p>
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => handleEdit(period)}
-                                                                className="text-blue-500 hover:text-blue-700 p-2"
-                                                                title="Edit Period"
-                                                            >
-                                                                <FaEdit />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleDeletePeriod(period.id)}
-                                                                className="text-red-500 hover:text-red-700 p-2"
-                                                                title="Delete Period"
-                                                            >
-                                                                <FaTrash />
+                        <div className="min-w-[600px]">
+                            <div className="grid grid-cols-8 gap-2 mb-2 font-bold text-center text-gray-600 bg-gray-100 p-2 rounded-lg">
+                                <div>Time</div>
+                                {daysOfWeek.map(d => <div key={d}>{d.slice(0, 3)}</div>)}
+                            </div>
+
+                            {/* Simple Grid Visualization (Vertical Time Slots) */}
+                            <div className="space-y-2">
+                                {["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"].map(time => (
+                                    <div key={time} className="grid grid-cols-8 gap-2 text-sm">
+                                        <div className="text-gray-500 font-medium text-center py-2">{time}</div>
+                                        {daysOfWeek.map(day => {
+                                            const periods = groupedTimetable[day]?.filter(p => p.startTime.startsWith(time.split(':')[0]));
+                                            return (
+                                                <div key={day} className="min-h-[50px] border rounded-md bg-gray-50 p-1 relative group">
+                                                    {periods?.map(p => (
+                                                        <div key={p.id} className="bg-blue-100 text-blue-800 p-1 rounded text-xs mb-1 cursor-pointer hover:bg-blue-200" onClick={() => handleEdit(p)}>
+                                                            <div className="font-bold truncate">{p.subject}</div>
+                                                            <div className="text-[10px]">{p.startTime}-{p.endTime}</div>
+                                                            <button onClick={(e) => { e.stopPropagation(); handleDeletePeriod(p.id); }} className="absolute top-0 right-0 text-red-500 opacity-0 group-hover:opacity-100 p-1">
+                                                                <FaTrash size={10} />
                                                             </button>
                                                         </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )
+                                                    ))}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 ))}
                             </div>
-                        )}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -4,13 +4,13 @@ import cv2
 import numpy as np
 import os
 import base64
+import time
+from deepface import DeepFace
 
 app = Flask(__name__)
 CORS(app)
 
-print("--------------------------------------------------")
-print("   LOADING NEW RECOGNIZE_API.PY WITH MULTI-FACE   ")
-print("--------------------------------------------------")
+
 
 # Store student data (usn and image path only)
 student_data = {}
@@ -42,68 +42,75 @@ def enroll():
 
     return jsonify({"message": f"Student {usn} enrolled successfully!"})
 
-# Train the model
-def train_model():
-    recognizer = cv2.face.LBPHFaceRecognizer_create()
-    faces = []
-    labels = []
-    label_map = {}
-    current_label = 0
-
-    # Loop through all subfolders in 'faces' and add student data
-    for person_usn in os.listdir("faces"):
-        person_folder = os.path.join("faces", person_usn)
-        if not os.path.isdir(person_folder):
-            continue
-
-        if person_usn not in label_map:
-            label_map[person_usn] = current_label
-            current_label += 1
-
-        for img_file in os.listdir(person_folder):
-            img_path = os.path.join(person_folder, img_file)
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-
-            if img is None:
-                print(f"[WARN] Could not read image: {img_path}")
-                continue
-
-            faces.append(img)
-            labels.append(label_map[person_usn])
-
-    if len(faces) == 0:
-        raise ValueError("No face images found for training.")
-
-    recognizer.train(faces, np.array(labels))
-    return recognizer, {v: k for k, v in label_map.items()}
-
-# Face recognition API
+# Face recognition API using DeepFace (FaceNet)
 @app.route("/recognize", methods=["POST"])
 def recognize():
+    print("DEBUG: Request received at /recognize")
+    try:
+        with open("api_debug.log", "a") as f:
+            f.write("DEBUG: Request received\n")
+    except:
+        pass
+
     data = request.get_json()
     image_data = data["image"].split(",")[1]
     image_bytes = base64.b64decode(image_data)
     np_arr = np.frombuffer(image_bytes, np.uint8)
     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    recognizer, label_reverse_map = train_model()
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    recognized_students = []
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    try:
+        start_time = time.time()
+        
+        with open("api_debug.log", "a") as f:
+            f.write(f"DEBUG: Starting recognition. CWD: {os.getcwd()}\n")
+            
+        # DeepFace.find performs face detection and recognition
+        dfs = DeepFace.find(img_path=frame, 
+                          db_path="faces", 
+                          model_name="VGG-Face", 
+                          detector_backend="ssd", 
+                          enforce_detection=False,
+                          silent=False)
+        
+        find_time = time.time()
+        log_msg = f"DEBUG: DeepFace.find took {find_time - start_time:.4f} seconds. Found {len(dfs)} results.\n"
+        print(log_msg)
+        with open("api_debug.log", "a") as f:
+            f.write(log_msg)
 
-    results = []
-    for (x, y, w, h) in faces:
-        face_img = gray[y:y+h, x:x+w]
-        label, confidence = recognizer.predict(face_img)
-        usn = label_reverse_map.get(label, "Unknown")
+        if len(dfs) > 0:
+            for df in dfs:
+                if not df.empty:
+                    # DeepFace returns matches sorted by distance, so iloc[0] is the best match for this face
+                    best_match = df.iloc[0]
+                    identity_path = best_match['identity']
+                    
+                    # Extract USN
+                    normalized_path = identity_path.replace('\\', '/')
+                    usn = normalized_path.split('/')[-2]
+                    
+                    distance = best_match['distance']
+                    
+                    # Add to results
+                    recognized_students.append({
+                        'usn': usn, 
+                        'confidence': float(distance)
+                    })
+                    print(f"DEBUG: Recognized {usn} with distance {distance}")
 
-        results.append({
-            "usn": usn,
-            "confidence": int(confidence)
-        })
+    except Exception as e:
+        with open("api_debug.log", "a") as f:
+            f.write(f"DeepFace error: {e}\n")
+        print(f"DeepFace error: {e}")
 
-    return jsonify(results)
+    return jsonify(recognized_students)
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "message": "Python API is running"})
 
 if __name__ == "__main__":
-    app.run(port=5005)
+    app.run(port=5006)
+

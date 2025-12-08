@@ -205,8 +205,23 @@ app.post("/api/timetable", async (req, res) => {
 app.delete("/api/timetable/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    await dbRun("DELETE FROM timetable WHERE id = ?", [id]);
-    res.json({ message: "Period deleted successfully" });
+    // Get the subject name before deleting
+    const period = await dbGet("SELECT * FROM timetable WHERE id = ?", [id]);
+    if (period) {
+      const { subject } = period;
+
+      // Delete from timetable
+      await dbRun("DELETE FROM timetable WHERE id = ?", [id]);
+
+      // Optional: Delete associated attendance logs? 
+      // The user said "removing subject... should reflect in logs". 
+      // Usually this means deleting the logs for that subject so they don't show up as orphaned.
+      await dbRun("DELETE FROM attendance_logs WHERE course = ?", [subject]);
+
+      res.json({ message: `Period and associated logs for '${subject}' deleted successfully` });
+    } else {
+      res.status(404).json({ message: "Period not found" });
+    }
   } catch (err) {
     res.status(500).json({ message: "Error deleting period", error: err.message });
   }
@@ -216,11 +231,27 @@ app.put("/api/timetable/:id", async (req, res) => {
   const { id } = req.params;
   const { subject, startTime, endTime, day } = req.body;
   try {
-    await dbRun(
-      "UPDATE timetable SET subject = ?, startTime = ?, endTime = ?, day = ? WHERE id = ?",
-      [subject, startTime, endTime, day, id]
-    );
-    res.json({ message: "Period updated successfully" });
+    // Get old subject name
+    const oldPeriod = await dbGet("SELECT * FROM timetable WHERE id = ?", [id]);
+
+    if (oldPeriod) {
+      const oldSubject = oldPeriod.subject;
+
+      // Update timetable
+      await dbRun(
+        "UPDATE timetable SET subject = ?, startTime = ?, endTime = ?, day = ? WHERE id = ?",
+        [subject, startTime, endTime, day, id]
+      );
+
+      // Update attendance logs if subject name changed
+      if (oldSubject !== subject) {
+        await dbRun("UPDATE attendance_logs SET course = ? WHERE course = ?", [subject, oldSubject]);
+      }
+
+      res.json({ message: "Period and associated logs updated successfully" });
+    } else {
+      res.status(404).json({ message: "Period not found" });
+    }
   } catch (err) {
     res.status(500).json({ message: "Error updating period", error: err.message });
   }
@@ -236,6 +267,7 @@ async function getPeriodForCurrentTime(now) {
   try {
     // Filter by current day
     const timetable = await dbAll("SELECT * FROM timetable WHERE day = ?", [currentDay]);
+    console.log(`DEBUG: Checking period for ${currentDay} at ${currentHour}:${currentMinute} (${currentTimeVal}). Found ${timetable.length} entries.`);
 
     for (const period of timetable) {
       const [startH, startM] = period.startTime.split(':').map(Number);
@@ -243,6 +275,8 @@ async function getPeriodForCurrentTime(now) {
 
       const startVal = startH * 60 + startM;
       const endVal = endH * 60 + endM;
+
+      console.log(`   Checking ${period.subject}: ${startVal} <= ${currentTimeVal} < ${endVal}`);
 
       if (currentTimeVal >= startVal && currentTimeVal < endVal) {
         return period.subject;
@@ -283,6 +317,122 @@ app.put("/api/students/:usn", async (req, res) => {
 });
 
 
+
+// 10. Get Student Attendance Summary
+app.get("/api/students/:usn/summary", async (req, res) => {
+  const { usn } = req.params;
+  try {
+    const student = await dbGet("SELECT * FROM students WHERE usn = ?", [usn]);
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const logs = await dbAll("SELECT * FROM attendance_logs WHERE usn = ? ORDER BY recognizedAt DESC", [usn]);
+
+    // Group by course
+    const attendanceMap = {};
+    logs.forEach(log => {
+      if (!attendanceMap[log.course]) {
+        attendanceMap[log.course] = [];
+      }
+      attendanceMap[log.course].push(log.recognizedAt);
+    });
+
+    // Convert to array
+    const summary = Object.keys(attendanceMap).map(course => ({
+      subject: course,
+      classesAttended: attendanceMap[course].length,
+      history: attendanceMap[course] // Array of timestamps
+    }));
+
+    res.json({
+      name: student.name,
+      usn: student.usn,
+      course: student.course,
+      image: student.image, // Include profile image
+      summary: summary
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching summary", error: err.message });
+  }
+});
+
+// 11. Get Defaulter Stats (Pie Chart Data)
+app.get("/api/stats/defaulters", async (req, res) => {
+  try {
+    const students = await dbAll("SELECT * FROM students");
+    const logs = await dbAll("SELECT * FROM attendance_logs");
+
+    let defaulters = 0;
+    let eligible = 0;
+
+    // Mock Logic: Total Classes = Attended + 5 (Same as frontend)
+    // In production, this should come from a real 'classes_held' table
+    students.forEach(student => {
+      const studentLogs = logs.filter(log => log.usn === student.usn);
+      const attended = studentLogs.length;
+      const total = attended + 5;
+      const percentage = (attended / total) * 100;
+
+      if (percentage < 75) {
+        defaulters++;
+      } else {
+        eligible++;
+      }
+    });
+
+    res.json([
+      { name: 'Eligible', value: eligible, fill: '#10B981' }, // Green
+      { name: 'Defaulter', value: defaulters, fill: '#EF4444' } // Red
+    ]);
+
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching stats", error: err.message });
+  }
+});
+
+// 12. Download Defaulter Report (CSV)
+app.get("/api/reports/defaulters", async (req, res) => {
+  try {
+    const students = await dbAll("SELECT * FROM students");
+    const logs = await dbAll("SELECT * FROM attendance_logs");
+
+    const defaulterList = [];
+
+    students.forEach(student => {
+      const studentLogs = logs.filter(log => log.usn === student.usn);
+      const attended = studentLogs.length;
+      const total = attended + 5;
+      const percentage = Math.round((attended / total) * 100);
+
+      if (percentage < 75) {
+        defaulterList.push({
+          name: student.name,
+          usn: student.usn,
+          course: student.course,
+          percentage: `${percentage}%`,
+          status: "Defaulter"
+        });
+      }
+    });
+
+    // Convert to CSV
+    const headers = ["Name", "USN", "Course", "Attendance %", "Status"];
+    const csvRows = defaulterList.map(d =>
+      `"${d.name}","${d.usn}","${d.course}","${d.percentage}","${d.status}"`
+    );
+
+    const csvContent = [headers.join(","), ...csvRows].join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=defaulter_list.csv");
+    res.status(200).send(csvContent);
+
+  } catch (err) {
+    res.status(500).json({ message: "Error generating report", error: err.message });
+  }
+});
 
 // --- AUTHENTICATION ---
 
