@@ -14,6 +14,7 @@ const Dashboard = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(4);
     const [selectedCourse, setSelectedCourse] = useState("All");
+    const [downloadDate, setDownloadDate] = useState(new Date().toISOString().split('T')[0]);
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -270,6 +271,12 @@ const Dashboard = () => {
                             >
                                 <FaExclamationTriangle /> Download Defaulter List
                             </button>
+                            <button
+                                onClick={() => window.open(`http://localhost:5001/api/reports/absentees?date=${downloadDate}&subject=${selectedCourse}`)}
+                                className="w-full mt-2 bg-yellow-100 text-yellow-700 py-3 rounded-xl font-bold hover:bg-yellow-200 transition flex items-center justify-center gap-2"
+                            >
+                                <FaClipboardList /> Download Absentee Report
+                            </button>
                         </div>
                     </div>
 
@@ -278,8 +285,18 @@ const Dashboard = () => {
                         <div className="bg-white w-1/2 rounded-[1.1rem] shadow-md p-4">
                             <h1 className="text-gray-800 ml-2 text-md font-bold mb-2">Logs of Student Attendance</h1>
                             <div className="flex justify-end mb-2 gap-2">
+                                <div className="flex items-center gap-2">
+                                    <label htmlFor="reportDate" className="text-sm text-gray-700 font-semibold">Date:</label>
+                                    <input
+                                        type="date"
+                                        id="reportDate"
+                                        value={downloadDate}
+                                        onChange={(e) => setDownloadDate(e.target.value)}
+                                        className="border px-2 py-1 rounded-md text-sm"
+                                    />
+                                </div>
                                 <button
-                                    onClick={() => window.open('http://localhost:5001/api/reports/attendance')}
+                                    onClick={() => window.open(`http://localhost:5001/api/reports/attendance?date=${downloadDate}`)}
                                     className="bg-green-600 text-white px-3 py-1 rounded-md text-sm font-semibold hover:bg-green-700 transition"
                                 >
                                     Download Report

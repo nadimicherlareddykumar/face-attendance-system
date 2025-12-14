@@ -150,20 +150,27 @@ app.post("/api/periodwise-attendance", async (req, res) => {
 
 // 6. Download Attendance Report (CSV)
 app.get("/api/reports/attendance", async (req, res) => {
+  const { date } = req.query;
   try {
-    const logs = await dbAll("SELECT * FROM attendance_logs ORDER BY recognizedAt DESC");
+    let logs;
+    if (date) {
+      // SQLite date filtering on ISO string
+      logs = await dbAll("SELECT * FROM attendance_logs WHERE strftime('%Y-%m-%d', recognizedAt) = ? ORDER BY recognizedAt DESC", [date]);
+    } else {
+      logs = await dbAll("SELECT * FROM attendance_logs ORDER BY recognizedAt DESC");
+    }
 
     // Convert to CSV
     const headers = ["Name", "USN", "Course", "Date & Time"];
     const csvRows = logs.map(log => {
-      const date = new Date(log.recognizedAt).toLocaleString();
-      return `"${log.name}","${log.usn}","${log.course}","${date}"`;
+      const dateStr = new Date(log.recognizedAt).toLocaleString();
+      return `"${log.name}","${log.usn}","${log.course}","${dateStr}"`;
     });
 
     const csvContent = [headers.join(","), ...csvRows].join("\n");
 
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=attendance_report.csv");
+    res.setHeader("Content-Disposition", `attachment; filename=attendance_report_${date || 'all'}.csv`);
     res.status(200).send(csvContent);
 
   } catch (err) {
@@ -294,6 +301,21 @@ async function getPeriodForCurrentTime(now) {
 app.delete("/api/students/:usn", async (req, res) => {
   const { usn } = req.params;
   try {
+    // 1. Delete from Face API
+    try {
+      const faceRes = await fetch(`http://localhost:5006/delete_student/${usn}`, {
+        method: 'DELETE'
+      });
+      if (!faceRes.ok) {
+        console.error(`Failed to delete face data for ${usn}: ${faceRes.statusText}`);
+      } else {
+        console.log(`Deleted face data for ${usn}`);
+      }
+    } catch (faceErr) {
+      console.error("Error communicating with Face API:", faceErr);
+    }
+
+    // 2. Delete from SQLite
     await dbRun("DELETE FROM students WHERE usn = ?", [usn]);
     res.json({ message: "Student deleted successfully" });
   } catch (err) {
@@ -431,6 +453,80 @@ app.get("/api/reports/defaulters", async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ message: "Error generating report", error: err.message });
+  }
+});
+
+// 13. Download Absentee Report (CSV) - Subject Wise
+app.get("/api/reports/absentees", async (req, res) => {
+  const { date, subject } = req.query;
+  const targetDate = date ? new Date(date) : new Date();
+  const dateStr = targetDate.toISOString().split('T')[0];
+  const dayName = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+  try {
+    // 1. Get Timetable for the day
+    let timetable = await dbAll("SELECT * FROM timetable WHERE day = ?", [dayName]);
+
+    // Filter by subject if specified and not "All"
+    if (subject && subject !== "All") {
+      timetable = timetable.filter(t => t.subject === subject);
+    }
+
+    if (timetable.length === 0) {
+      return res.status(200).send(`No classes scheduled for ${dayName} (${dateStr})`);
+    }
+
+    const students = await dbAll("SELECT * FROM students");
+    const absenteeList = [];
+
+    for (const period of timetable) {
+      const subject = period.subject;
+
+      // Get logs for this specific date and subject
+      // We filter by date string in SQLite
+      const logs = await dbAll(
+        "SELECT * FROM attendance_logs WHERE course = ? AND strftime('%Y-%m-%d', recognizedAt) = ?",
+        [subject, dateStr]
+      );
+
+      const presentUsns = new Set(logs.map(log => log.usn));
+
+      // Find students who are NOT in presentUsns
+      // Note: In a real system, we'd check if the student is enrolled in this course.
+      // For now, assuming all students take all courses or check 'student.course' against 'period.subject' if applicable.
+      // Based on previous code, 'course' in students table seems to be their major (e.g. "MECH"), not specific subject.
+      // So we assume all students should attend all classes for now.
+
+      students.forEach(student => {
+        if (!presentUsns.has(student.usn)) {
+          absenteeList.push({
+            date: dateStr,
+            day: dayName,
+            subject: subject,
+            time: `${period.startTime} - ${period.endTime}`,
+            name: student.name,
+            usn: student.usn,
+            status: "Absent"
+          });
+        }
+      });
+    }
+
+    // Convert to CSV
+    const headers = ["Date", "Day", "Subject", "Time", "Student Name", "USN", "Status"];
+    const csvRows = absenteeList.map(r =>
+      `"${r.date}","${r.day}","${r.subject}","${r.time}","${r.name}","${r.usn}","${r.status}"`
+    );
+
+    const csvContent = [headers.join(","), ...csvRows].join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename=absentee_report_${dateStr}.csv`);
+    res.status(200).send(csvContent);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error generating absentee report", error: err.message });
   }
 });
 

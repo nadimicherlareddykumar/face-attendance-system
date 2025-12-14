@@ -12,7 +12,7 @@ const Addstudent = () => {
     course: '',
     phone: ''
   });
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
 
@@ -21,56 +21,61 @@ const Addstudent = () => {
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles(files);
+      // Preview the first file
+      setPreviewUrl(URL.createObjectURL(files[0]));
     }
   };
 
   const handleEnrollment = async () => {
-    if (!student.name || !student.usn || !student.age || !student.course || !student.phone || !selectedFile) {
-      alert("Please fill in all details and upload a photo.");
+    if (!student.name || !student.usn || !student.age || !student.course || !student.phone || selectedFiles.length === 0) {
+      alert("Please fill in all details and upload at least one photo.");
       return;
     }
 
     setIsEnrolling(true);
 
     try {
-      // Convert file to Base64
-      const reader = new FileReader();
-      reader.readAsDataURL(selectedFile);
-      reader.onloadend = async () => {
-        const base64Image = reader.result;
+      // Helper to convert file to base64
+      const toBase64 = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+      });
 
-        // Send to Python API
-        const response = await fetch('http://localhost:5006/enroll', {
+      // Convert all files
+      const base64Images = await Promise.all(selectedFiles.map(toBase64));
+
+      // Send to Python API
+      const response = await fetch('http://localhost:5006/enroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usn: student.usn, images: base64Images })
+      });
+
+      if (response.ok) {
+        // Save student details to Node.js backend (use the first image as profile pic)
+        const dataResponse = await fetch('http://localhost:5001/api/students', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usn: student.usn, image: base64Image })
+          body: JSON.stringify({ ...student, image: base64Images[0] })
         });
 
-        if (response.ok) {
-          // Save student details to Node.js backend
-          const dataResponse = await fetch('http://localhost:5001/api/students', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...student, image: base64Image }) // Save image in DB too if needed
-          });
-
-          if (dataResponse.ok) {
-            alert(`Successfully enrolled ${student.name}!`);
-            setStudent({ name: '', age: '', course: '', phone: '', usn: '' });
-            setSelectedFile(null);
-            setPreviewUrl(null);
-          } else {
-            alert("Failed to save student details.");
-          }
+        if (dataResponse.ok) {
+          alert(`Successfully enrolled ${student.name}!`);
+          setStudent({ name: '', age: '', course: '', phone: '', usn: '' });
+          setSelectedFiles([]);
+          setPreviewUrl(null);
         } else {
-          alert("Failed to enroll face. Please try a clearer photo.");
+          alert("Failed to save student details.");
         }
-        setIsEnrolling(false);
-      };
+      } else {
+        alert("Failed to enroll face. Please try a clearer photo.");
+      }
+      setIsEnrolling(false);
 
     } catch (err) {
       console.error('Error during enrollment:', err);
@@ -144,16 +149,24 @@ const Addstudent = () => {
                     </div>
                   )}
                 </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg cursor-pointer"
-                />
+                <label className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg cursor-pointer hover:bg-gray-50 transition">
+                  <span className="text-sm font-semibold text-gray-700">Select Photos</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
               </div>
+
               <div className='w-full lg:w-1/2 flex flex-col justify-start mt-5 items-center text-center'>
-                <h1 className='text-gray-800 font-bold text-[1.5rem] mb-4'>Upload Student Photo</h1>
-                <p className="text-gray-500 mb-6">Please upload a clear, front-facing photo (like an ID card photo) for best recognition results.</p>
+                <h1 className='text-gray-800 font-bold text-[1.5rem] mb-4'>Upload Student Photos</h1>
+                <p className="text-gray-500 mb-6">Please upload clear, front-facing photos (e.g., 3 different angles) for best recognition results.</p>
+                <div className="mb-4 text-sm text-blue-600 font-medium">
+                  {selectedFiles.length > 0 ? `${selectedFiles.length} photos selected` : 'No photos selected'}
+                </div>
                 <button
                   onClick={handleEnrollment}
                   disabled={isEnrolling}
@@ -163,8 +176,6 @@ const Addstudent = () => {
               </div>
             </div>
           </div>
-
-
         </div>
       </div>
     </div>

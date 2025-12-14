@@ -192,7 +192,7 @@ const Timetable = () => {
 
                             {/* Simple Grid Visualization (Vertical Time Slots) */}
                             <div className="space-y-2">
-                                {["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"].map(time => (
+                                {["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"].map(time => (
                                     <div key={time} className="grid grid-cols-8 gap-2 text-sm">
                                         <div className="text-gray-500 font-medium text-center py-2">{time}</div>
                                         {daysOfWeek.map(day => {

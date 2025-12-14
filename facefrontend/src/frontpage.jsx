@@ -55,7 +55,7 @@ const Front = () => {
     if (isAutoMode) {
       interval = setInterval(() => {
         handleRecognize(true); // Pass true for auto mode
-      }, 5000); // Run every 5 seconds
+      }, 2000); // Run every 2 seconds
     }
     return () => clearInterval(interval);
   }, [isAutoMode, students]);
@@ -230,9 +230,7 @@ const Front = () => {
                 </div>
               )}
 
-              <div className="absolute top-4 left-4 bg-blue-500/80 text-white px-3 py-1 rounded-full text-sm font-bold">
-                FaceNet Enhanced
-              </div>
+
             </div>
           </div>
 
