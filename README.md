@@ -2,8 +2,7 @@
 
 A state-of-the-art **Face Recognition Attendance System** built with a modern tech stack. This application leverages the power of **ArcFace** for high-accuracy face recognition, identifying individuals even in challenging conditions (low light, long distance, masks). It features a sleek, responsive **React** frontend and a robust **Node.js** backend.
 
-![Project Banner](https://via.placeholder.com/1200x400?text=Face+Attendance+System+Dashboard)
-*(Replace this placeholder with an actual screenshot of your dashboard!)*
+
 
 ## 🚀 Features
 
